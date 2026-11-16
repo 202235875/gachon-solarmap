@@ -3217,3 +3217,173 @@ renderAssumeBar();
 renderAll();
 renderSummary();
 </script>
+<!-- ===== MOTION START ===== -->
+<style>
+/* 밑줄: 기본은 다 그어진 상태(애니메이션 끈 사람도 보이게) */
+.sx-hero h1 em{ text-decoration:none; padding-bottom:1px;
+  background:linear-gradient(var(--accent),var(--accent)) no-repeat 0 100% / 100% 3px;
+  -webkit-box-decoration-break:clone; box-decoration-break:clone; }
+@media (prefers-reduced-motion: no-preference){
+  @keyframes mo-in{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+  @keyframes mo-fade{ from{ opacity:.25; } to{ opacity:1; } }
+  @keyframes mo-grow-y{ from{ transform:scaleY(0); } to{ transform:none; } }
+  @keyframes mo-grow-x{ from{ transform:scaleX(0); } to{ transform:none; } }
+  @keyframes mo-ul{ from{ background-size:0 3px; } to{ background-size:100% 3px; } }
+  @keyframes mo-pulse{ 0%{ stroke-width:12px; stroke-opacity:.35; } 100%{ stroke-width:3.5px; stroke-opacity:1; } }
+
+  .mo-enter > *{ animation:mo-in .32s cubic-bezier(.2,.7,.2,1) both; }
+  .mo-enter > :nth-child(2){ animation-delay:40ms; }
+  .mo-enter > :nth-child(3){ animation-delay:80ms; }
+  .mo-enter > :nth-child(4){ animation-delay:120ms; }
+  .mo-enter > :nth-child(5){ animation-delay:160ms; }
+  .mo-enter > :nth-child(6){ animation-delay:200ms; }
+  .mo-enter .sx-hero h1 em{ animation:mo-ul .5s cubic-bezier(.4,0,.2,1) both; }
+  .mo-enter .sx-hero h1 em:nth-of-type(1){ animation-delay:.30s; }
+  .mo-enter .sx-hero h1 em:nth-of-type(2){ animation-delay:.50s; }
+  .mo-enter .sx-hero h1 em:nth-of-type(3){ animation-delay:.70s; }
+  .mo-enter .sx-b, .mo-enter .sx-st{ animation:mo-in .3s cubic-bezier(.2,.7,.2,1) both; }
+  .mo-enter .sx-b:nth-child(1), .mo-enter .sx-st:nth-child(1){ animation-delay:250ms; }
+  .mo-enter .sx-b:nth-child(2), .mo-enter .sx-st:nth-child(2){ animation-delay:320ms; }
+  .mo-enter .sx-b:nth-child(3), .mo-enter .sx-st:nth-child(3){ animation-delay:390ms; }
+  .mo-enter .sx-b:nth-child(4), .mo-enter .sx-st:nth-child(4){ animation-delay:460ms; }
+  .mo-enter .sx-b:nth-child(5), .mo-enter .sx-st:nth-child(5){ animation-delay:530ms; }
+
+  .mo-swap{ animation:mo-fade .25s ease-out; }
+  .mo-swap .month-bar .bar{ transform-origin:bottom; animation:mo-grow-y .5s cubic-bezier(.2,.7,.2,1) both; }
+  .mo-swap .month-bar:nth-child(2) .bar{ animation-delay:25ms; }
+  .mo-swap .month-bar:nth-child(3) .bar{ animation-delay:50ms; }
+  .mo-swap .month-bar:nth-child(4) .bar{ animation-delay:75ms; }
+  .mo-swap .month-bar:nth-child(5) .bar{ animation-delay:100ms; }
+  .mo-swap .month-bar:nth-child(6) .bar{ animation-delay:125ms; }
+  .mo-swap .month-bar:nth-child(7) .bar{ animation-delay:150ms; }
+  .mo-swap .month-bar:nth-child(8) .bar{ animation-delay:175ms; }
+  .mo-swap .month-bar:nth-child(9) .bar{ animation-delay:200ms; }
+  .mo-swap .month-bar:nth-child(10) .bar{ animation-delay:225ms; }
+  .mo-swap .month-bar:nth-child(11) .bar{ animation-delay:250ms; }
+  .mo-swap .month-bar:nth-child(12) .bar{ animation-delay:275ms; }
+  .mo-swap .gauge-fill, .mo-swap .payback-fill, .mo-swap .split-bar span,
+  .mo-enter .cmp-track i, .mo-enter .mix-bar span, .mo-enter .reg-table .fill{
+    transform-origin:left; animation:mo-grow-x .6s cubic-bezier(.2,.7,.2,1) both; }
+
+  .mo-pulse{ animation:mo-pulse .9s ease-out; }
+  /* 음영 재생·옥상 분석 토글 때 건물 색이 끊기지 않고 넘어가게 */
+  .campus-map .leaflet-overlay-pane path{ transition:fill .45s ease, fill-opacity .45s ease, stroke .3s ease; }
+  .cf-chart .mo-late{ opacity:0; transition:opacity .25s ease; }
+  .cf-chart .mo-late.on{ opacity:1; }
+}
+</style>
+<script>
+(() => {
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (REDUCED) return;
+  const ease = t => 1 - Math.pow(1 - t, 3);
+  const restart = (el, cls) => { if (!el) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
+  const wrap = (name, after, before) => {
+    const f = window[name];
+    if (typeof f !== 'function') return;
+    window[name] = function(...a){ before && before(...a); const r = f.apply(this, a); after && after(...a); return r; };
+  };
+
+  // ---------- 숫자: 바뀐 값만 이전 값 → 새 값 ----------
+  const prevNum = new Map();
+  const NUM_SEL = ['#sxNums .v', '#stats .value', '#detailCard .stat .value', '#invKpis .stat .value',
+                   '#budgetResult .stat .value', '#shadeDetail .stat .value'];
+  const seen = new WeakSet();  // 다시 그려지지 않은(같은) 요소는 재생 중일 수 있으니 건너뜀
+  function tween(node, key){
+    if (seen.has(node) || !node.offsetParent) return;  // 숨은 탭은 들어올 때 처리
+    seen.add(node);
+    const tn = [...node.childNodes].find(n => n.nodeType === 3 && /\d/.test(n.nodeValue));
+    if (!tn) return;
+    const m = tn.nodeValue.match(/-?[\d,]*\d(?:\.\d+)?/);
+    if (!m) return;
+    const raw = m[0], to = parseFloat(raw.replace(/,/g, ''));
+    const dec = (raw.split('.')[1] || '').length, comma = raw.includes(',') || Math.abs(to) >= 1000 && /,/.test(raw);
+    const from = prevNum.has(key) ? prevNum.get(key) : 0;
+    prevNum.set(key, to);
+    if (from === to) return;
+    const pre = tn.nodeValue.slice(0, m.index), post = tn.nodeValue.slice(m.index + raw.length);
+    const fmt = v => comma ? v.toLocaleString('ko-KR', { minimumFractionDigits:dec, maximumFractionDigits:dec }) : v.toFixed(dec);
+    const t0 = performance.now(), D = 650;
+    node._moTok = (node._moTok || 0) + 1; const tok = node._moTok;
+    const step = now => {
+      if (tok !== node._moTok || !tn.isConnected) return;
+      const p = Math.min(1, (now - t0) / D);
+      tn.nodeValue = pre + fmt(from + (to - from) * ease(p)) + post;
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  function countUp(){
+    NUM_SEL.forEach(sel => document.querySelectorAll(sel).forEach((el, i) => tween(el, sel + ':' + i)));
+  }
+
+  // ---------- 탭 전환 ----------
+  let curView = 'sum', entering = false, enterTimer;
+  wrap('showView', () => requestAnimationFrame(countUp), v => {
+    if (v === curView) return;
+    curView = v; entering = true;
+    const el = document.getElementById(v + 'View');
+    restart(el, 'mo-enter');
+    clearTimeout(enterTimer);
+    enterTimer = setTimeout(() => { entering = false; el && el.classList.remove('mo-enter'); }, 1100);
+  });
+
+  // ---------- 건물 선택 ----------
+  let lastSel = null, lastShadeSel = null;
+  wrap('selectBuilding', name => {
+    const p = typeof bldgLayers !== 'undefined' && bldgLayers[name] && bldgLayers[name].getElement && bldgLayers[name].getElement();
+    if (p){ restart(p, 'mo-pulse'); setTimeout(() => p.classList.remove('mo-pulse'), 950); }
+  });
+  wrap('renderDetail', () => {
+    const s = typeof selectedName !== 'undefined' ? selectedName : null;
+    if (s !== lastSel){ lastSel = s; restart(document.getElementById('detailCard'), 'mo-swap'); }
+  });
+  wrap('renderShadeDetail', () => {
+    const s = typeof selectedName !== 'undefined' ? selectedName : null;
+    if (s !== lastShadeSel){ lastShadeSel = s; restart(document.getElementById('shadeDetail'), 'mo-swap'); }
+  });
+
+  // ---------- 투자 그래프: 대상이 바뀌거나 탭에 들어올 때만 그리기 ----------
+  let lastChartKey = null;
+  wrap('renderInvChart', () => {
+    const svg = document.querySelector('#invChart svg');
+    const key = (document.getElementById('invTitle') || {}).textContent;
+    if (!svg || (!entering && key === lastChartKey)) return;
+    lastChartKey = key;
+    const NS = 'http://www.w3.org/2000/svg';
+    const vb = svg.viewBox.baseVal, hit = svg.querySelector('#cfHit');
+    const x0 = hit ? +hit.getAttribute('x') : 0, full = hit ? +hit.getAttribute('width') : vb.width;
+    const cp = document.createElementNS(NS, 'clipPath'); cp.id = 'moClip';
+    const r = document.createElementNS(NS, 'rect');
+    r.setAttribute('x', 0); r.setAttribute('y', 0); r.setAttribute('height', vb.height); r.setAttribute('width', x0);
+    cp.appendChild(r); svg.prepend(cp);
+    svg.querySelectorAll('path.ln').forEach(p => p.setAttribute('clip-path', 'url(#moClip)'));
+    const late = [...svg.querySelectorAll('circle[cx]:not([id]), text.be')].map(el => {
+      el.classList.add('mo-late'); return [el, +(el.getAttribute('cx') || el.getAttribute('x'))];
+    });
+    const t0 = performance.now(), D = 900;
+    const step = now => {
+      if (!r.isConnected) return;
+      const p = Math.min(1, (now - t0) / D), w = x0 + full * (p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
+      r.setAttribute('width', w);
+      late.forEach(([el, cx]) => { if (cx <= w) el.classList.add('on'); });
+      if (p < 1) requestAnimationFrame(step); else r.setAttribute('width', vb.width);
+    };
+    requestAnimationFrame(step);
+  });
+
+  // ---------- 숫자 갱신 지점 ----------
+  ['renderSummary', 'renderStats', 'renderDetail', 'renderInv', 'renderBudget', 'renderShadeDetail']
+    .forEach(n => wrap(n, () => requestAnimationFrame(countUp)));
+
+  // ---------- 첫 화면 ----------
+  const first = document.querySelector('.wrap > [id$="View"]:not([hidden])');
+  if (first){
+    curView = first.id.replace('View', '');
+    restart(first, 'mo-enter');
+    setTimeout(() => first.classList.remove('mo-enter'), 1100);
+  }
+  countUp();
+})();
+</script>
+<!-- ===== MOTION END ===== -->
